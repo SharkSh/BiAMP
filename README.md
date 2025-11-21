@@ -6,7 +6,7 @@ Source code for the paper "BiAMP: Bidirectional Generation of Antimicrobial Pept
 Create a Python virtual environment and install the required packages:
 
 ```bash
-pip install -r difflm_requirements.txt
+pip install -r requirements.txt
 
 
 

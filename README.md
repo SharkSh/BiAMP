@@ -15,4 +15,11 @@ pip install -r requirements.txt
 python ./AMP2Text/infer_batch.py
 ```
 
+## Run Text-to-AMP 
+
+```
+cd Text-to-AMP
+torchrun --nproc-per-node=1 ./generation/scripts/infill.py
+```
+
 

@@ -22,4 +22,8 @@ cd Text-to-AMP
 torchrun --nproc-per-node=1 ./generation/scripts/infill.py
 ```
 
+## Decode generated embeddings to AMPs 
+```
+python  python ./generation/scripts/decode_to_seq.py
+```
 

@@ -20,7 +20,7 @@ AMP-to-Text/
 ├── infer_batch.py           # Batch inference script
 ├── prot_gpt2_models/        # Model checkpoints
 ├── prediction_result/       # Inference results directory
-└── data/                    # training data
+└── data/                    # training data (we provide a small portion of the training dataset here)
 ```
 ### Training
 To train the AMP-to-Text model
@@ -28,7 +28,9 @@ To train the AMP-to-Text model
 python ./train.py
 ```
 ### Inference
-To run AMP-to-Text inference (save your antimicrobial peptide sequences to ./prediction_result/generated.csv)
+To run AMP-to-Text inference 
+1. save your antimicrobial peptide sequences to ./prediction_result/generated.csv
+2. 
 ```
 python ./infer_batch.py
 ```

@@ -15,7 +15,7 @@ cd AMP2Text
 ```
 to train AMP-to-text
 ```
-python ./infer_batch.py
+python ./train.py
 ```
 to run AMP-to-Text
 ```

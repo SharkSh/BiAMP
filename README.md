@@ -9,10 +9,17 @@ Create a Python virtual environment and install the required packages:
 pip install -r requirements.txt
 ```
 
-## Run AMP-to-Text 
-
+## AMP-to-Text 
 ```
-python ./AMP2Text/infer_batch.py
+cd AMP2Text
+```
+to train AMP-to-text
+```
+python ./infer_batch.py
+```
+to run AMP-to-Text
+```
+python ./infer_batch.py
 ```
 
 ## Run Text-to-AMP 

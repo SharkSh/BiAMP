@@ -4,22 +4,30 @@ Source code for the paper "BiAMP: Bidirectional Generation of Antimicrobial Pept
 ## Installation
 
 Create a Python virtual environment and install the required packages:
-
 ```
 pip install -r requirements.txt
 ```
 
 ## AMP-to-Text 
 A deep learning model for converting antimicrobial peptide (AMP) sequences to text descriptions.
-Project Structure
 ```
 cd AMP2Text
 ```
-to train AMP-to-text
+### Project Structure
+AMP-to-Text/
+├── train.py                 # Training script
+├── infer_batch.py           # Batch inference script
+├── prot_gpt2_models/        # Model checkpoints
+├── prediction_result/       # Inference results directory
+└── data/                    # training data
+### Training
+To train the AMP-to-Text model
 ```
 python ./train.py
 ```
-to run AMP-to-Text
+### Inference
+To run AMP-to-Text inference
+Save your antimicrobial peptide sequences to ./prediction_result/generated.csv
 ```
 python ./infer_batch.py
 ```

@@ -10,6 +10,8 @@ pip install -r requirements.txt
 ```
 
 ## AMP-to-Text 
+A deep learning model for converting antimicrobial peptide (AMP) sequences to text descriptions.
+Project Structure
 ```
 cd AMP2Text
 ```

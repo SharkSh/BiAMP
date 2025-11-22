@@ -23,14 +23,18 @@ AMP-to-Text/
 └── data/                    # training data (we provide a small portion of the training dataset here)
 ```
 ### Training
-To train the AMP-to-Text model
+To train the AMP-to-Text model:
 ```
 python ./train.py
 ```
 ### Inference
-To run AMP-to-Text inference 
-1. save your antimicrobial peptide sequences to ./prediction_result/generated.csv
-2. 
+
+To run AMP-to-Text inference:
+
+1. Save your antimicrobial peptide sequences to  
+   `./prediction_result/generated.csv`
+
+2. Run the inference script:
 ```
 python ./infer_batch.py
 ```

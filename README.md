@@ -28,8 +28,7 @@ To train the AMP-to-Text model
 python ./train.py
 ```
 ### Inference
-To run AMP-to-Text inference␣␣
-Save your antimicrobial peptide sequences to ./prediction_result/generated.csv
+To run AMP-to-Text inference (save your antimicrobial peptide sequences to ./prediction_result/generated.csv)
 ```
 python ./infer_batch.py
 ```

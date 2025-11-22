@@ -14,12 +14,14 @@ A deep learning model for converting antimicrobial peptide (AMP) sequences to te
 cd AMP2Text
 ```
 ### Project Structure
+```
 AMP-to-Text/
 ├── train.py                 # Training script
 ├── infer_batch.py           # Batch inference script
 ├── prot_gpt2_models/        # Model checkpoints
 ├── prediction_result/       # Inference results directory
 └── data/                    # training data
+```
 ### Training
 To train the AMP-to-Text model
 ```

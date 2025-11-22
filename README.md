@@ -39,8 +39,8 @@ To run AMP-to-Text inference:
 python ./infer_batch.py
 ```
 
-## Run Text-to-AMP 
-
+## Text-to-AMP 
+A deep learning model for generating antimicrobial peptide (AMP) sequences to text descriptions.
 ```
 cd Text-to-AMP
 torchrun --nproc-per-node=1 ./generation/scripts/infill.py

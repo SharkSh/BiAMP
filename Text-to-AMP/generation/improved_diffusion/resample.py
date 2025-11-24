@@ -60,6 +60,7 @@ class ScheduleSampler(ABC):
 class UniformSampler(ScheduleSampler):
     def __init__(self, diffusion):
         self.diffusion = diffusion
+        # 所有时间步被赋予相同的采样概率，即“均匀采样”，权重为全1数组
         self._weights = np.ones([diffusion.num_timesteps])
 
     def weights(self):

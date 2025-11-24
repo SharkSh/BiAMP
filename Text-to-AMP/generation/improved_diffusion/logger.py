@@ -368,6 +368,10 @@ def get_rank_without_mpi_import():
     return 0
 """
 def get_rank_without_mpi_import():
+    """
+    获取当前进程的 rank，适用于 PyTorch 分布式训练。
+    """
+    # 从环境变量 RANK 中获取 rank
     return int(os.environ.get("RANK", 0))
 
 
@@ -402,6 +406,13 @@ def mpi_weighted_mean(comm, local_name2valcount):
 
 
 def configure(dir=None, format_strs=None, comm=None, log_suffix=""):
+    """
+    param dir: 日志文件的存储目录
+    param format_strs: 日志输出格式的字符串列表
+    param comm: 通信对象，如果提供，则会对数值型统计信息进行平均。
+    param log_suffix: 附加到日志文件名的后缀
+    """
+    # 确定日志文件的存储目录dir
     if dir is None:
         dir = os.getenv("OPENAI_LOGDIR")
     if dir is None:
@@ -413,11 +424,12 @@ def configure(dir=None, format_strs=None, comm=None, log_suffix=""):
     dir = os.path.expanduser(dir)
     os.makedirs(os.path.expanduser(dir), exist_ok=True)
 
+    # 获取当前进程的rank并且更新log_suffix
     rank = get_rank_without_mpi_import()
-    if rank > 0:
+    if rank > 0: # rank>0 也就是非主进程，
         log_suffix = log_suffix + "-rank%03i" % rank
         
-
+    # 定下日志输出格式 format_strs
     if format_strs is None:
         if rank == 0:
             format_strs = os.getenv("OPENAI_LOG_FORMAT", "stdout,log,csv").split(",")

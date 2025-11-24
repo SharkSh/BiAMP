@@ -22,22 +22,22 @@ def model_and_diffusion_defaults():
         num_heads_upsample=-1,
         attention_resolutions="16,8",
         dropout=0.0,
-        learn_sigma=False,               
+        learn_sigma=False,                # 不学习方差 
         sigma_small=False,                
         class_cond=False,
-        diffusion_steps=2000,            
-        timestep_respacing="",           
-        noise_schedule="sqrt",            
-        use_kl=False,                     
-        rescale_learned_sigmas=True,      
+        diffusion_steps=2000,             # 扩散时间步 
+        timestep_respacing="",            # 跳过部分时间步的diffusion_steps的子集？
+        noise_schedule="sqrt",            # 噪声权重 beta alpha 生成方式
+        use_kl=False,                     # 损失函数是否使用 KL散度
+        rescale_learned_sigmas=True,      # 损失函数是否使用 重新缩放的均方误差
         use_scale_shift_norm=True,       
-        predict_xstart=True,            
+        predict_xstart=True,              # predict_xstart为True, 模型预测的目标是X0
         rescale_timesteps=True,
         use_checkpoint=False,
-        model_arch='skip-transformer',    
+        model_arch='skip-transformer',    # 根据 model_arch 选择不同的 Denoiser架构。
         in_channel=1024,
         out_channel=1024,
-        training_mode='emb',             
+        training_mode='emb',              # 训练模式
         vocab_size=66,
         config_name='bert-base-uncased',
         experiment_mode='lm',
@@ -88,59 +88,7 @@ def create_model_and_diffusion(
         model_arch=model_arch,
         training_mode=training_mode,
     )
-    prediction = initialize_model('./generation/checkpoints_pretrain/best_model.pth')
-    return model, diffusion, prediction
-
-class ProtT5_GPT2(nn.Module):
-    def __init__(self, prot_encoder, gpt2_decoder):
-        super().__init__()
-        self.encoder = prot_encoder
-        self.decoder = gpt2_decoder
-        self.encoder_hidden_proj = nn.Sequential(
-            nn.Linear(1024, 768),
-            nn.LayerNorm(768),
-            nn.GELU()
-        )
-
-    def forward(self, input_ids, attention_mask, decoder_input_ids, labels=None):
-        encoder_outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        encoder_hidden_states = encoder_outputs.last_hidden_state
-        encoder_hidden_states = self.encoder_hidden_proj(encoder_hidden_states)
-
-        outputs = self.decoder(
-            input_ids=decoder_input_ids,
-            encoder_hidden_states=encoder_hidden_states,
-            encoder_attention_mask=attention_mask,
-            labels=labels,
-        )
-
-        return outputs.loss, outputs.logits
-
-def initialize_model(pretrained_prediction_path):
-    local_prot_t5_path = "../pretrained_models/models--Rostlab--prot_t5_xl_uniref50/snapshots/973be27c52ee6474de9c945952a8008aeb2a1a73"
-    local_gpt2_path = "../pretrained_models/models--gpt2/snapshots/607a30d783dfa663caf39e06633721c8d4cfcd7e"
-
-    prot_tokenizer = T5Tokenizer.from_pretrained(local_prot_t5_path, do_lower_case=False)
-    gpt2_tokenizer = GPT2Tokenizer.from_pretrained(local_gpt2_path)
-    gpt2_tokenizer.pad_token = gpt2_tokenizer.eos_token
-
-    config = GPT2Config.from_pretrained(local_gpt2_path)
-    config.add_cross_attention = True  # cross-attention
-
-    prot_encoder = T5EncoderModel.from_pretrained(local_prot_t5_path)
-    gpt2_decoder = GPT2LMHeadModel.from_pretrained(local_gpt2_path, config=config)
-
-    gpt2_decoder.config.pad_token_id = gpt2_tokenizer.pad_token_id
-    gpt2_decoder.resize_token_embeddings(len(gpt2_tokenizer))
-
-    model = ProtT5_GPT2(prot_encoder, gpt2_decoder)
-    
-    model.load_state_dict(torch.load(pretrained_prediction_path, map_location="cpu"))
-
-    for param in model.encoder.parameters():
-        param.requires_grad = False
-
-    return model
+    return model, diffusion
 
 def create_model(
     latent_dim=[1, 1024],
@@ -188,7 +136,9 @@ def create_gaussian_diffusion(
     model_arch='conv-unet',
     training_mode='emb',
 ):
+    # 获得噪声权重betas
     betas = gd.get_named_beta_schedule(noise_schedule, steps)
+    # 确定损失函数类型 training_mode默认是emb
     if training_mode == 'e2e':
         if use_kl:
             loss_type = gd.LossType.E2E_KL
@@ -203,7 +153,7 @@ def create_gaussian_diffusion(
         if use_kl:
             loss_type = gd.LossType.RESCALED_KL  
         elif rescale_learned_sigmas:
-            loss_type = gd.LossType.RESCALED_MSE  
+            loss_type = gd.LossType.RESCALED_MSE  # 损失函数是重新缩放的MSE
         else:
             loss_type = gd.LossType.MSE
     if not timestep_respacing:
@@ -211,6 +161,7 @@ def create_gaussian_diffusion(
     return SpacedDiffusion(
         use_timesteps=space_timesteps(steps, timestep_respacing),
         betas=betas,
+        # model_mean_type决定模型预测的目标是噪声EPSILON还是初始数据START_X，默认是predict_xstart为True, 预测X0
         model_mean_type=(
             gd.ModelMeanType.EPSILON if not predict_xstart else gd.ModelMeanType.START_X
         ),

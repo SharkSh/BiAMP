@@ -5,6 +5,7 @@ from .gaussian_diffusion import GaussianDiffusion
 
 def space_timesteps(num_timesteps, section_counts):
     """
+    根据一定规则从原始扩散时间步（num_timesteps）中选择出一个子集，用于 SpacedDiffusion 过程，以减少计算量。
     Create a list of timesteps to use from an original diffusion process,
     given the number of timesteps we want to take from equally-sized portions
     of the original process.
@@ -34,6 +35,7 @@ def space_timesteps(num_timesteps, section_counts):
             raise ValueError(
                 f"cannot create exactly {num_timesteps} steps with an integer stride"
             )
+        # section_counts 是形如字符串 "10,15,20"
         section_counts = [int(x) for x in section_counts.split(",")]
     size_per = num_timesteps // len(section_counts)
     extra = num_timesteps % len(section_counts)
@@ -69,12 +71,12 @@ class SpacedDiffusion(GaussianDiffusion):
     """
 
     def __init__(self, use_timesteps, **kwargs):
-        self.use_timesteps = set(use_timesteps)            
+        self.use_timesteps = set(use_timesteps)            # 保留的时间步
         self.timestep_map = []                             
         self.original_num_steps = len(kwargs["betas"])
 
         # print(kwargs.keys())
-        base_diffusion = GaussianDiffusion(**kwargs)  
+        base_diffusion = GaussianDiffusion(**kwargs)  # pylint: disable=missing-kwoa
         last_alpha_cumprod = 1.0
         new_betas = []
         for i, alpha_cumprod in enumerate(base_diffusion.alphas_cumprod):
@@ -92,10 +94,10 @@ class SpacedDiffusion(GaussianDiffusion):
         return super().p_mean_variance(self._wrap_model(model), *args, **kwargs)
 
     def training_losses(
-        self, model, prediction, *args, **kwargs
+        self, model, *args, **kwargs
     ):  # pylint: disable=signature-differs
         # print('called training_losses')
-        return super().training_losses(self._wrap_model(model), prediction, *args, **kwargs)
+        return super().training_losses(self._wrap_model(model), *args, **kwargs)
 
     def _wrap_model(self, model):
         if isinstance(model, _WrappedModel):

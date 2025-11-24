@@ -228,13 +228,13 @@ class GaussianDiffusion:
         self.mapping_func = None 
 
     # 根据training_mode执行不同的损失函数，默认是'emb'
-    def training_losses(self, model, prediction, *args, **kwargs):
+    def training_losses(self, model, *args, **kwargs):
         if self.training_mode == 'e2e':
             return self.training_losses_e2e(model, *args, **kwargs)
         elif self.training_mode == 'e2e-simple':
             return self.training_losses_e2e_simple(model, *args, **kwargs)
         else:
-            return self.training_losses_emb(model, prediction, *args, **kwargs)
+            return self.training_losses_emb(model, *args, **kwargs)
 
     def calc_bpd_loop(self, model, *args, **kwargs):
         if self.training_mode == 'e2e':
@@ -998,7 +998,7 @@ class GaussianDiffusion:
         if device is None:
             device = next(model.parameters()).device
         assert isinstance(shape, (tuple, list))
-
+        # 初始化噪声
         if noise is not None:
             img = noise
         elif m != 0:
@@ -1007,7 +1007,7 @@ class GaussianDiffusion:
         else:
             img = th.randn(*shape, device=device)
             img_init = img
-
+        # 反向时间步
         indices = list(range(self.num_timesteps))[::-1]
         
         if progress:
@@ -1017,7 +1017,7 @@ class GaussianDiffusion:
 
         # print('n in ddim_sample_loop_progressive: ', n)
         # print('indices: ', indices)
-
+        # 采样循环
         progress_img = img.unsqueeze(0)
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
@@ -1151,22 +1151,33 @@ class GaussianDiffusion:
         output = kl + decoder_nll + kl_T 
         return {"output": output, "pred_xstart": out["pred_xstart"], 'kl': kl, 'decoder_nll':decoder_nll, 'kl_T':kl_T}
 
-    def training_losses_emb(self, model, prediction, t, model_kwargs=None, noise=None):
+    def training_losses_emb(self, model, t, model_kwargs=None, noise=None):
+
+        """
+        Compute training losses for a single timestep.
+
+        :param model: denoiser模型.(trans-unet->skiptransformer)
+        :param t: 时间步的批次索引.
+        :param model_kwargs: 额外的关键字参数
+        :param noise: 指定的高斯噪声。如果没有指定，将随机生成.
+        :return: a dict with the key "loss" containing a tensor of shape [N].
+                 Some mean or variance settings may also have other keys.
+        """
         
         if model_kwargs is None:
             model_kwargs = {}
-        seq_emb = model_kwargs.get("seq_emb", None)    
+        seq_emb = model_kwargs.get("seq_emb", None)    # 获取 seq 数据
 
         x_start = seq_emb
-
+        # 加噪
         if noise is None:
-            noise = th.randn_like(x_start)                  
-        x_t = self.q_sample(x_start, t, noise=noise)        
+            noise = th.randn_like(x_start)                  # 没有提供noise，则随机生成x_start形状相同的高斯噪声
+        x_t = self.q_sample(x_start, t, noise=noise)        # 根据 q_sample() 生成 x_t
 
         terms = {}
         
-
-        if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:     
+        # 根据 self.loss_type 选择不同的损失计算方式，默认是RESCALED_MSE
+        if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:     # KL 散度损失
             terms["loss"] = self._vb_terms_bpd(
                 model=model,
                 x_start=x_start,
@@ -1178,11 +1189,14 @@ class GaussianDiffusion:
             )["output"]
             if self.loss_type == LossType.RESCALED_KL:
                 terms["loss"] *= self.num_timesteps
-        elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE: 
+        elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE: # 均方误差（MSE）损失
+            # 删除input_ids
             if model_kwargs is not None and 'input_ids' in model_kwargs:
                 model_kwargs.pop('input_ids')
+            # 计算模型输出
             # model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
             model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            # 处理学习方差，默认是不学习方差？
             if self.model_var_type in [ModelVarType.LEARNED,ModelVarType.LEARNED_RANGE,]:
                 if self.model_arch == 'conv-unet':
                     B, C = x_t.shape[:2]
@@ -1207,6 +1221,7 @@ class GaussianDiffusion:
                     frozen_out = th.cat([model_output.detach(), model_var_values], dim=-1)
 
                 # Learn the variance using the variational bound, but don't let
+                # it affect our mean prediction.变分下界损失
                 terms["vb"] = self._vb_terms_bpd(
                     model=lambda *args, r=frozen_out: r,
                     x_start=x_start,
@@ -1219,6 +1234,7 @@ class GaussianDiffusion:
                     # Divide by 1000 for equivalence with initial implementation.
                     # Without a factor of 1/1000, the VB term hurts the MSE term.
                     terms["vb"] *= self.num_timesteps / 1000.0
+            # 根据 model_mean_type 确定计算目标，默认是x_start
             target = {
                 ModelMeanType.PREVIOUS_X: self.q_posterior_mean_variance(
                     x_start=x_start, x_t=x_t, t=t
@@ -1228,29 +1244,12 @@ class GaussianDiffusion:
             }[self.model_mean_type]
 
             assert model_output.shape == target.shape == x_start.shape
-            terms["mse"] = 0
-
-            attention_mask = model_kwargs["mask"]
-            decoder_input_ids = model_kwargs["ids"]
-            labels = decoder_input_ids.clone()
-
-            encoder_hidden_states = model_output
-            encoder_hidden_states = prediction.encoder_hidden_proj(encoder_hidden_states)
-
-            output = prediction.decoder(
-                input_ids=decoder_input_ids,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_attention_mask=attention_mask,
-                labels=labels,
-            )
-
-            amp2text_loss = output.loss  
-
+            terms["mse"] = mean_flat((target - model_output) ** 2)
             # 加权加入总 loss
             if "vb" in terms:
-                terms["loss"] = terms["mse"] + terms["vb"] + amp2text_loss
+                terms["loss"] = terms["mse"] + terms["vb"]
             else:
-                terms["loss"] = terms["mse"] + amp2text_loss
+                terms["loss"] = terms["mse"]
 
         return terms
 

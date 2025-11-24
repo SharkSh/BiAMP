@@ -32,7 +32,6 @@ class TrainLoop:
         *,
         model,
         diffusion,
-        prediction,
         data,
         class_weight=None,
         batch_size,
@@ -53,10 +52,10 @@ class TrainLoop:
         eval_class_weight=None,
         eval_interval=-1,
         weighted=None,
+        scale = 0.1, 
     ):
         self.model = model
         self.diffusion = diffusion
-        self.prediction = prediction
         self.data = data
         self.class_weight = class_weight
         self.eval_data = eval_data
@@ -128,6 +127,7 @@ class TrainLoop:
                 )
             self.use_ddp = False
             self.ddp_model = self.model
+        self.scale = scale
 
     def _load_and_sync_parameters(self):
         resume_checkpoint = find_resume_checkpoint() or self.resume_checkpoint
@@ -181,24 +181,30 @@ class TrainLoop:
             not self.lr_anneal_steps
             or self.step + self.resume_step < self.lr_anneal_steps
         ):
-            data_iter = iter(self.data)                  
+            data_iter = iter(self.data)               
             try:
-                one_iter = next(data_iter)          
+                one_iter = next(data_iter)           
                 batch = one_iter['seq_emb']         
-                text = one_iter['text_emb']         
-                length = one_iter['len_emb']        
-                mask = one_iter['mask']
-                ids = one_iter["ids"]
+                text = one_iter['text_emb']          
+                length = one_iter['len_emb']          
+                # === classifier-free guidance ===
+                B = batch.size(0)
+                drop_mask = (th.rand(B, device=text.device) >= self.scale).float()
+                text_cfg = text * drop_mask[:, None, None]
+                len_cfg = length * drop_mask[:, None, None]
             except StopIteration:
-                data_iter = iter(self.data)      
+                data_iter = iter(self.data)     
                 one_iter = next(data_iter)
                 batch = one_iter['seq_emb']
                 text = one_iter['text_emb']
                 length = one_iter['len_emb']
-                mask = one_iter['mask']
-                ids = one_iter["ids"]
-            self.run_step(batch, text, length, mask, ids) 
-            if self.step % self.log_interval == 0:          
+                # === classifier-free guidance ===
+                B = batch.size(0)
+                drop_mask = (th.rand(B, device=text.device) >= self.scale).float()
+                text_cfg = text * drop_mask[:, None, None]
+                len_cfg = length * drop_mask[:, None, None]
+            self.run_step(batch, text_cfg, len_cfg) 
+            if self.step % self.log_interval == 0:        
                 logger.dumpkvs()          
             if self.eval_data is not None and self.step % self.eval_interval == 0: 
                 eval_data_iter = iter(self.eval_data)
@@ -207,20 +213,26 @@ class TrainLoop:
                     batch_eval = one_iter_eval['seq_emb']
                     text_eval = one_iter_eval['text_emb']
                     len_eval = one_iter_eval['len_emb']
-                    mask = one_iter['mask']
-                    ids = one_iter["ids"]
+                    # === classifier-free guidance ===
+                    B = batch.size(0)
+                    drop_mask = (th.rand(B, device=text.device) >= self.scale).float()
+                    text_cfg = text_eval * drop_mask[:, None, None]
+                    len_cfg = len_eval * drop_mask[:, None, None]
                 except StopIteration:
                     eval_data_iter = iter(self.eval_data)
                     one_iter_eval = next(eval_data_iter)
                     batch_eval = one_iter_eval['seq_emb']
                     text_eval = one_iter_eval['text_emb']
                     len_eval = one_iter_eval['len_emb']
-                    mask = one_iter['mask']
-                    ids = one_iter["ids"]
-                self.forward_only(batch_eval, text_eval, len_eval, mask, ids) 
+                    # === classifier-free guidance ===
+                    B = batch.size(0)
+                    drop_mask = (th.rand(B, device=text.device) >= self.scale).float()
+                    text_cfg = text_eval * drop_mask[:, None, None]
+                    len_cfg = len_eval * drop_mask[:, None, None]
+                self.forward_only(batch_eval, text_cfg, len_cfg) 
                 print('eval on validation set')
                 logger.dumpkvs()
-            if self.step % self.save_interval == 0:       
+            if self.step % self.save_interval == 0:      
                 self.save()
                 # Run for a finite amount of time in integration tests.
                 if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
@@ -230,23 +242,21 @@ class TrainLoop:
         if (self.step - 1) % self.save_interval != 0:
             self.save()
 
-    def run_step(self, batch, text, length, mask, ids):
-        self.forward_backward(batch, text, length, mask, ids)
-        if self.use_fp16:              
+    def run_step(self, batch, text, length):
+        self.forward_backward(batch, text, length)
+        if self.use_fp16:               
             self.optimize_fp16()
         else:
             self.optimize_normal()  
         self.log_step()
 
-    def forward_only(self, batch, text, length, mask, ids):
+    def forward_only(self, batch, text, length):
         with th.no_grad():
             zero_grad(self.model_params)        
             for i in range(0, batch.shape[0], self.microbatch):
                 micro_seq = batch[i : i + self.microbatch].to(dist_util.dev())
                 micro_text = text[i : i + self.microbatch].to(dist_util.dev())
                 micro_len = length[i : i + self.microbatch].to(dist_util.dev())
-                micro_mask = mask[i : i + self.microbatch].to(dist_util.dev())
-                micro_ids = ids[i : i + self.microbatch].to(dist_util.dev())
                 last_batch = (i + self.microbatch) >= batch.shape[0]
 
                 t, weights = self.schedule_sampler.sample(micro_seq.shape[0], dist_util.dev())
@@ -254,13 +264,10 @@ class TrainLoop:
                 compute_losses = functools.partial(
                     self.diffusion.training_losses,
                     self.ddp_model,
-                    self.prediction,
                     t,
                     model_kwargs={"seq_emb": micro_seq
                                   , "text_emb": micro_text
-                                  , "length": micro_len
-                                  , "mask": micro_mask
-                                  , "ids": micro_ids}, 
+                                  , "length": micro_len}, 
                 )
 
                 if last_batch or not self.use_ddp:
@@ -273,26 +280,21 @@ class TrainLoop:
                     self.diffusion, t, {f"eval_{k}": v * weights for k, v in losses.items()}
                 )
 
-    def forward_backward(self, batch, text, length, mask, ids):
-        zero_grad(self.model_params)            
+    def forward_backward(self, batch, text, length):
+        zero_grad(self.model_params)             
         for i in range(0, batch.shape[0], self.microbatch):
             micro_seq = batch[i : i + self.microbatch].to(dist_util.dev())
             micro_text = text[i : i + self.microbatch].to(dist_util.dev())
             micro_len = length[i : i + self.microbatch].to(dist_util.dev())
-            micro_mask = mask[i : i + self.microbatch].to(dist_util.dev())
-            micro_ids = ids[i : i + self.microbatch].to(dist_util.dev())
             last_batch = (i + self.microbatch) >= batch.shape[0]
             t, weights = self.schedule_sampler.sample(micro_seq.shape[0], dist_util.dev())
             compute_losses = functools.partial(
                 self.diffusion.training_losses,
                 self.ddp_model,
-                self.prediction,
                 t,
                 model_kwargs={"seq_emb": micro_seq
-                            , "text_emb": micro_text
-                            , "length": micro_len
-                            , "mask": micro_mask
-                            , "ids": micro_ids},  
+                              , "text_emb": micro_text
+                              , "length": micro_len}, 
             )
             if last_batch or not self.use_ddp:
                 losses = compute_losses()
@@ -322,7 +324,7 @@ class TrainLoop:
         model_grads_to_master_grads(self.model_params, self.master_params)
         self.master_params[0].grad.mul_(1.0 / (2 ** self.lg_loss_scale))
         self._log_grad_norm()
-        # self._anneal_lr()
+        self._anneal_lr()
         self.opt.step()
         for rate, params in zip(self.ema_rate, self.ema_params):
             update_ema(params, self.master_params, rate=rate)
@@ -345,9 +347,9 @@ class TrainLoop:
     def optimize_normal(self):
         if self.gradient_clipping > 0:           
             self.grad_clip()
-        self._log_grad_norm()                   
-        # self._anneal_lr()                       
-        self.opt.step()                        
+        self._log_grad_norm()                    
+        self._anneal_lr()                       
+        self.opt.step()                          
         for rate, params in zip(self.ema_rate, self.ema_params):     
             update_ema(params, self.master_params, rate=rate)
 
@@ -356,7 +358,6 @@ class TrainLoop:
         for p in self.master_params:
             sqsum += (p.grad ** 2).sum().item()
         logger.logkv_mean("grad_norm", np.sqrt(sqsum))
-
 
     def _anneal_lr(self):
         if not self.lr_anneal_steps:
@@ -371,7 +372,7 @@ class TrainLoop:
     def log_step(self):
         logger.logkv("step", self.step + self.resume_step)
         logger.logkv("samples", (self.step + self.resume_step + 1) * self.global_batch)
-        current_lr = self.opt.param_groups[0]["lr"]  
+        current_lr = self.opt.param_groups[0]["lr"] 
         logger.logkv("lr", round(current_lr, 10))
         if self.use_fp16:
             logger.logkv("lg_loss_scale", self.lg_loss_scale)

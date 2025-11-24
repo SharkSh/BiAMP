@@ -8,7 +8,7 @@ Create a Python virtual environment and install the required packages:
 pip install -r requirements.txt
 ```
 
-## AMP-to-Text 
+## AMP2Text 
 A deep learning model for converting antimicrobial peptide (AMP) sequences to text descriptions.
 ```
 cd AMP2Text
@@ -39,15 +39,21 @@ To run AMP-to-Text inference:
 python ./infer_batch.py
 ```
 
-## Text-to-AMP 
+## Text2AMP 
 A deep learning model for generating antimicrobial peptide (AMP) sequences to text descriptions.
+
+### Training
+To train the AMP-to-Text model:
 ```
-cd Text-to-AMP
+cd Text2AMP
+torchrun --nproc-per-node=1 ./generation/scripts/train.py
+```
+### generate new AMP embeddings
+```
 torchrun --nproc-per-node=1 ./generation/scripts/infill.py
 ```
-
-## Decode generated embeddings to AMPs 
+### Decode generated embeddings to AMPs 
 ```
-python  python ./generation/scripts/decode_to_seq.py
+python ./generation/scripts/decode.py
 ```
 
